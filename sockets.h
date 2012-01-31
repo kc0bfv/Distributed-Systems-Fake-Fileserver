@@ -19,23 +19,30 @@ typedef struct srcSpecTag {
 } srcSpec;
 
 typedef enum userOptsTag {
-	//Client Options
+	//Client Requests - no response
 	OPT_NOSELECTION, //=0
-	OPT_LS, //List the current directory on the server
-	OPT_CD, //Change the current directory on the server
-	OPT_PWD, //Print the current directory's location on the server
-	OPT_SEND, //Send the server a file
-	OPT_RECV, //Get a file from the server
 	OPT_QUIT, //Quit
+
+	//Client Requests - response required
+		//These first 3 require no data parameters
+	OPT_LS, //List the current directory on the server
+	OPT_PWD, //Print the current directory's location on the server
+	OPT_HN, //Get the server's hostname
+		//This one requires 2 filenames
+	OPT_CP, //Copy a file on the server
+		//These 3 require a filename
+	OPT_CD, //Change the current directory on the server
+	OPT_STAT,
+	OPT_MKDIR, //Make a directory on the server
+
+	//Other
 	OPT_ERROR,
-
-	//Client Messages
-	OPT_OK, //Generic ok message
-
-	//Server Messages
-	OPT_SENDING, //Message contains a file block
-	OPT_EOF //File is done
 } userOpts;
+
+#define OPT_FRESPONSEOPT OPT_LS
+#define OPT_LRESPONSEOPT OPT_MKDIR
+#define OPT_FFILENAMEREQ OPT_CD
+#define OPT_LFILENAMEREQ OPT_MKDIR
 
 typedef union intToCharUnionTag{
 	uint32_t intSpot;
@@ -44,14 +51,13 @@ typedef union intToCharUnionTag{
 
 int clientConnect( clientSocket *cSocket, const destSpec *dest );
 int clientSendOpt( const clientSocket *cSocket, const userOpts option, const unsigned char *data, const size_t dataLen );
-int clientWaitForFile( const clientSocket *cSocket, const unsigned char *filename, const size_t filenameLen );
+int clientGetResp( const clientSocket *cSocket, const userOpts option, char *response, size_t responseLen, const size_t maxResponseLen );
 int clientDisconnect( const clientSocket *cSocket );
 
 int serverListen( serverSocket *sSocket, const srcSpec *src	);
 int serverAccept( const serverSocket *sSocket, serverSocket *accepted ); //Currently blocking
 int serverRecvRequest( const serverSocket *accepted, userOpts *option, unsigned char *data, const size_t maxDataSize, size_t *dataSize );
-int serverRecvData( const serverSocket *accepted, char *buffer, const size_t bufSize, ssize_t valsRead );
-int serverSendFile( const serverSocket *accepted, const unsigned char *filename, const size_t filenameSize );
+int serverRespRequest( const serverSocket *accepted, const userOpts option, const unsigned char *data, const size_t dataSize );
 int serverCloseAccepted( const serverSocket *accepted );
 int serverStopListen( const serverSocket *sSocket );
 
@@ -81,3 +87,5 @@ Command - RECV File - data section contains filename
 #define HEADERSIZE DATASEGOFF //The header ends at the data segment start
 #define MAXDATASIZE 1024
 #define MESSAGEBUFSIZE 1040 //This seems like a good number for now
+
+#define MAXFILENAMESIZE 256 //Good for now

@@ -33,14 +33,10 @@ int main( int argc, char *argv[] ) {
 			printf( "%i\n", option );
 
 			//Handle the options the user specified
-			switch( option ) {
-				case OPT_LS: break;
-				case OPT_CD: break;
-				case OPT_PWD: break;
-				case OPT_SEND: break;
-				case OPT_RECV: serverSendFile( &acceptedSock, data, dataLen ); break;
-				case OPT_QUIT: clientWantsConnection = 0; break;
-				default: ;
+			if( option == OPT_QUIT ) {
+				clientWantsConnection = 0;
+			} else {
+				serverRespRequest( &acceptedSock, option, data, dataLen );
 			}
 		}
 		if( serverCloseAccepted( &acceptedSock ) == -1 ) {

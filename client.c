@@ -10,19 +10,18 @@ int main( int argc, char *argv[] ) {
 	unsigned char data[MAXDATASIZE];
 	size_t dataLen;
 
+	char response[MAXDATASIZE+1];
+	size_t responseLen;
+
 	//processInputParams( argc, argv, dest );
 
 	dest.addr = "127.0.0.1";
 	dest.port = "3000";
 
-//	printf( "Here\n" );
-
 	if( clientConnect( &cSocket, &dest ) == -1 ) {
 		perror( "clientConnect" );
 		return 1;
 	}
-
-//	printf( "Here2\n" );
 
 	while( option != OPT_QUIT ) {
 		//Do stuff
@@ -33,21 +32,23 @@ int main( int argc, char *argv[] ) {
 			}
 		}
 
-		if( option == OPT_RECV ) {
-			if( clientWaitForFile( &cSocket, data, dataLen ) == -1 ) { //Wait for the server's response, store it in the filename still specified in data
-				perror( "ClientWaitForFile Error" );
+		if( option >= OPT_FRESPONSEOPT && option <= OPT_LRESPONSEOPT ) {
+			if( clientGetResp( &cSocket, option, response, responseLen, sizeof(response) ) == -1 ){
+				perror( "clientGetResp" );
+				return 1;
 			}
+
+			printf( "%s\n", response );
 		}
 
-		if( queryUser( &option, data, MAXDATASIZE, &dataLen ) == -1 ) {
+		if( queryUser( &option, data, sizeof(data), &dataLen ) == -1 ) {
 				perror( "queryUser" );
 				return 1;
 		}
 	}
 
-//	printf( "Here3\n" );
+	clientSendOpt( &cSocket, option, NULL, 0 ); //Let the server know that we're quitting
 
-	clientSendOpt( &cSocket, option, NULL, 0 ); //Let the server know
 	clientDisconnect( &cSocket );
 
 	return 0;
