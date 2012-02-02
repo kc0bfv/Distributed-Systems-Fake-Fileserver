@@ -57,7 +57,7 @@ int clientDisconnect( const clientSocket *cSocket );
 int serverListen( serverSocket *sSocket, const srcSpec *src	);
 int serverAccept( const serverSocket *sSocket, serverSocket *accepted ); //Currently blocking
 int serverRecvRequest( const serverSocket *accepted, userOpts *option, unsigned char *data, const size_t maxDataSize, size_t *dataSize );
-int serverRespRequest( const serverSocket *accepted, const userOpts option, const unsigned char *data, const size_t dataSize );
+int serverRespRequest( const serverSocket *accepted, const userOpts option, const unsigned char *data, const size_t dataSize, const char *highestDir );
 int serverCloseAccepted( const serverSocket *accepted );
 int serverStopListen( const serverSocket *sSocket );
 
@@ -65,6 +65,13 @@ int fmtMessage( const userOpts userOpt, const unsigned char *data, const size_t 
 
 int queryUser( userOpts *option, unsigned char *data, const size_t maxDataLen, size_t *dataLen );
 int checkCRC( unsigned char *buffer, const size_t buffersize );
+int copyInFilename( char *filename, const size_t maxFNameSize, size_t *fnamelen, const unsigned char *data, const size_t dataSize );
+int prepError( int errval, unsigned char *response, const size_t maxResponseSize, size_t *actualResponseSize );
+
+//Used in validating the "don't go above the root" rules
+int validateFilename( char *filename, const size_t filenameLen, const char *highestDir );
+int countPeriodPairs( char *filename, const size_t filenameLen, unsigned int *periodPairs );
+int verifyBstartswithA( const char *A, const char *B );
 
 /*Protocol Being Considered
 Basic message:
@@ -89,3 +96,6 @@ Command - RECV File - data section contains filename
 #define MESSAGEBUFSIZE 1040 //This seems like a good number for now
 
 #define MAXFILENAMESIZE 256 //Good for now
+
+#define TRUE (1==1)
+#define FALSE (1!=1)

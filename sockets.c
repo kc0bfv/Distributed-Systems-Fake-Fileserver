@@ -1,8 +1,10 @@
 #include <netdb.h> //getaddrinfo
 #include <string.h> //memcpy
-#include <unistd.h> //close
+#include <unistd.h> //close, getcwd
 #include <stdlib.h> //malloc
 #include <dirent.h> //opendir, readdir, closedir
+#include <sys/stat.h> //stat, mkdir
+#include <time.h> //ctime_r
 #include <fcntl.h>
 #include <errno.h>
 
@@ -212,7 +214,7 @@ int serverRecvRequest( const serverSocket *accepted, userOpts *option, unsigned 
 	return 0;
 }
 
-int serverRespRequest( const serverSocket *accepted, const userOpts option, const unsigned char *data, const size_t dataSize ) {
+int serverRespRequest( const serverSocket *accepted, const userOpts option, const unsigned char *data, const size_t dataSize, const char *highestDir ) {
 
 	//Handle the options that require a response to the user
 	if( (option >= OPT_FRESPONSEOPT) && (option <= OPT_LRESPONSEOPT) ) {
@@ -225,36 +227,128 @@ int serverRespRequest( const serverSocket *accepted, const userOpts option, cons
 
 		//Handle requests which have one parameter - build the user response here
 		if( (option >= OPT_FFILENAMEREQ) && (option <= OPT_LFILENAMEREQ) ) {
-			switch( option ) {
-				case OPT_CD: break;
-				case OPT_STAT:
-				case OPT_MKDIR:
-				default: return -1; break; //bummer - TODO: errors here
+			char filename[MAXFILENAMESIZE];
+			size_t fnamelen;
+			int error = FALSE;
+
+			//Copy the filename into our filename buffer
+			if( copyInFilename( filename, sizeof(filename), &fnamelen, data, dataSize ) != 0 ) {
+				error = TRUE;
 			}
+
+			//Don't allow any filenames which violate these rules
+			if( validateFilename( filename, sizeof(filename), highestDir ) != 0 ) {
+				errno = EPERM;
+				error = TRUE;
+			}
+
+			if( !error ) {
+				switch( option ) {
+					case OPT_CD:
+						if( chdir( filename ) != 0 ) {
+							error = TRUE;
+						} else {
+							strncpy( (char *) response, "Success!", sizeof( response ) );
+							len = strnlen( (char *) response, sizeof(response) );
+						}
+						break;
+					case OPT_STAT:
+						{
+							struct stat statBuf;
+							char times[3][40]; //Make buffers to store the access time strings
+
+							if( stat( filename, &statBuf ) != 0 ) {
+								error = TRUE;
+							} else { 
+								ctime_r( &statBuf.st_atime, times[0] ); //Convert the times to strings
+								ctime_r( &statBuf.st_mtime, times[1] );
+								ctime_r( &statBuf.st_ctime, times[2] );
+
+								//This returns the number of chars it actually wrote
+								len = snprintf( (char *) response, sizeof(response),
+										"File: '%s'\nSize: %lli\tBlocks: %lli\tIO Block: %i\nDevice: %i\tInode: %lli\tHardlinks: %i\nAccess: %i\tUid: %i\tGid: %i\nAccess: %s Modify: %s Change: %s ",
+										filename, statBuf.st_size, statBuf.st_blocks, statBuf.st_blksize,
+										statBuf.st_rdev, statBuf.st_ino, statBuf.st_nlink, statBuf.st_mode,
+										statBuf.st_uid, statBuf.st_gid, times[0], times[1], times[2] );
+
+								len = ( len > (sizeof(response)-1) ) ? sizeof(response)-1 : len; //Set len to at most sizeof(response)
+								response[len] = '\0'; //Just make sure
+							}
+						} break;
+					case OPT_MKDIR:
+						if( mkdir( filename, 0750 ) != 0 ) {
+							error = TRUE;
+						} else {
+							strncpy( (char *) response, "Success!", sizeof( response ) );
+							len = strnlen( (char *) response, sizeof(response) );
+						}
+						break;
+					default: error=TRUE; break; //bummer - TODO: errors here
+				}
+			}
+			if( error ) {
+				prepError( errno, response, sizeof( response ), &len );
+			}
+			fmtMessage( option, response, len, message, sizeof( message ), &mesgSize );
 		} else if( option == OPT_CP ) { //Handle the copy case
 			char filenames[2][MAXFILENAMESIZE];
 			size_t fnamelen[2];
+			int error = FALSE;
 
-			//Figure out the length of the strings we'll copy first.  Do this to avoid overrunning the buffer
-			fnamelen[0] = strnlen( (char *) data, dataSize );
-			if( fnamelen[0] <= 0 || fnamelen[0] > dataSize || fnamelen[0] == dataSize ) { //If fnamelen1 doesn't make sense...
-				return -1; //TODO: set some errors
+			//Copy the filenames into our filename buffers
+			{
+				int i = 0, pos = 0;
+				for( i=0, pos=0; i < 2 && !error; i++ ) {
+					if( copyInFilename( filenames[i], sizeof(filenames[i]), &(fnamelen[i]), &(data[pos]), dataSize-pos ) != 0 ) {
+						error = TRUE;
+					}
+
+					//Don't allow any filenames which violate these rules
+					if( validateFilename( filenames[i], sizeof(filenames[i]), highestDir ) != 0 ) {
+						errno = EPERM;
+						error = TRUE;
+					}
+
+					if( (pos += fnamelen[i] + 1) > dataSize ) {
+						error = TRUE;
+					}
+				}
 			}
-			fnamelen[1] = strnlen( (char *) &(data[fnamelen[0]+1]), dataSize-(fnamelen[0]+1) );
-			if( fnamelen[1] <= 0 || fnamelen[1]+fnamelen[0] > dataSize ) {
-				return -1; //TODO: set some errors
+
+			if( !error ) {
+				int writeFile=0, readFile=0;
+				size_t bytesRead;
+				char fileBuf[1024];
+
+				readFile = open( filenames[0], O_RDONLY );
+				writeFile = open( filenames[1], O_WRONLY|O_CREAT|O_EXCL );
+				if( readFile < 0 || writeFile < 0 ) {
+					error=TRUE; //Error opening reading file
+				}
+
+				while( !error && (bytesRead = read( readFile, fileBuf, sizeof(fileBuf) )) != 0 ) { //Read data and detect EOF
+					if( bytesRead == -1 ) { //If there was an error reading in the data
+						error=TRUE; //Error reading file
+					}
+					if( !error && write( writeFile, fileBuf, bytesRead ) != bytesRead ) { //Write the data and detect an error
+						error=TRUE;
+					}
+				}
+
+				close( readFile );
+				close( writeFile );
 			}
 
-			strncpy( filenames[0], (char *) data, MAXFILENAMESIZE ); //Copy over first filename
-			filenames[0][fnamelen[0]] = '\0'; //Just make sure
-
-			strncpy( filenames[1], (char *) &(data[fnamelen[0]+1]), MAXFILENAMESIZE ); //Copy over second filename
-			filenames[1][fnamelen[1]] = '\0'; //Just make sure
-
-			strncpy( (char *) response, "Success!", sizeof( response ) );
-			len = strnlen( (char *) response, sizeof(response) );
+			if( !error ) {
+				strncpy( (char *) response, "Success!", sizeof( response ) );
+				len = strnlen( (char *) response, sizeof(response) );
+			} else {
+				prepError( errno, response, sizeof( response ), &len );
+			}
 			fmtMessage( option, response, len, message, sizeof( message ), &mesgSize );
 		} else { //Handle options with no data parameters
+			int error = FALSE;
+
 			switch( option ) {
 				case OPT_LS:
 				{
@@ -272,33 +366,39 @@ int serverRespRequest( const serverSocket *accepted, const userOpts option, cons
 						}
 					}
 					closedir( dir );
-					fmtMessage( option, response, pos, message, sizeof( message ), &mesgSize );
+
+					len = pos;
+
 					break;
 				}
 				case OPT_PWD:
 					if( getcwd( (char *)response, sizeof( response ) ) == NULL ) {
-						return -1; //TODO: Handle error
+						error = TRUE; //TODO: Handle error
 					}
 					response[ sizeof( response ) - 1 ] = '\0';
 					len = strnlen( (char *) response, sizeof(response) );
-					fmtMessage( option, response, len, message, sizeof( message ), &mesgSize );
 					break;
 				case OPT_HN:
 					if( gethostname( (char *) response, sizeof( response ) ) == -1 ) {
-						return -1; //TODO: Handle error
+						error = TRUE; //TODO: Handle error
 					}
 					response[ sizeof( response ) - 1 ] = '\0';
 					len = strnlen( (char *) response, sizeof(response) );
-					fmtMessage( option, response, len, message, sizeof( message ), &mesgSize );
 					break;
-				default: return -1; break; //bummer - TODO: errors here
+				default: error = TRUE; break; //bummer - TODO: errors here
 			} //Switch
+
+			if( error ) {
+				prepError( errno, response, sizeof( response ), &len );
+			}
+			fmtMessage( option, response, len, message, sizeof( message ), &mesgSize );
 		} //if
 
 		//Write out the message to the user
 		if( write( accepted->sockRef, &message, mesgSize ) != mesgSize ) {
 			//TODO: handle ERROR
-			perror( "Error Writing File Out" );
+			perror( "Error Writing Data Out" );
+			return -1;
 		}
 	} else { //Handle the options that require no user response
 		switch( option ) {
@@ -307,90 +407,8 @@ int serverRespRequest( const serverSocket *accepted, const userOpts option, cons
 		}
 	}
 
-	/*
-		switch( option ) {
-		//Response Required
-		case OPT_LS:
-			strncpy( (char *) response, "Welcome", 8 );
-			fmtMessage( OPT_LS, response, 8, message, sizeof(message), &mesgSize );
-			break;
-		case OPT_PWD:
-			strncpy( (char *) response, "You're here", 12 );
-			fmtMessage( OPT_LS, response, 12, message, sizeof(message), &mesgSize );
-			if( write( accepted->sockRef, &message, mesgSize ) != mesgSize ) {
-				//TODO: handle ERROR
-				perror( "Error Writing File Out" );
-			}
-			break;
-		default: ;
-	} */
-
 	return 0;
 }
-
-
-/*
-int serverSendFile( const serverSocket *accepted, const unsigned char *filename, const size_t filenameSize ){
-	//TODO: What if the data segment is too big for a filename?
-
-//	size_t filenameSize = bufSize-HEADERSIZE;
-//	char *filename = malloc( filenameSize+1 ); //buffer size - header + null character
-//	//TODO: make sure filename is freed on every possible return - this is why C sucks
-
-	int readFile = 0;
-	unsigned int blockCounter = 0;
-	ssize_t bytesRead = 0;
-	unsigned char fileBuf[MAXDATASIZE]; //Max data segment size, so we'll send data in 1024 byte blocks
-
-	size_t mesgSize = 0;
-	unsigned char message[MESSAGEBUFSIZE];
-
-	printf( "Starting send\n" );
-
-	//memcpy( filename, &(buffer[DATASEGOFF]), filenameSize ); //copy in the filename from the data seg
-	//filename[filenameSize] = '\0'; //Null terminate the string
-
-	//TODO: if( checkFilename( filename, filenameSize ) == -1 ) {
-		//Return or something
-	//	}
-	//	
-
-	readFile = open( (char *) filename, O_RDONLY );
-	if( readFile < 0 ) {
-		//TODO: Probably return an error message to the client
-		//free( filename );
-		return -1; //Error opening the file
-	}
-
-	printf( "Opened file\n" );
-	
-	blockCounter = 0;
-	while( ( bytesRead = read(readFile, fileBuf, sizeof(fileBuf)) ) > 0 ) { //Until we hit EOF...
-		blockCounter++;
-		fmtMessage( OPT_SENDING, fileBuf, bytesRead, message, sizeof(message), &mesgSize );
-		if( write( accepted->sockRef, &message, mesgSize ) != mesgSize ) {
-			//TODO: handle ERROR
-			perror( "Error Writing File Out" );
-		}
-		//TODO: Wait for client to send OK response for specific block - do I really care to do this, or just trust TCP?
-		//Probably need to break out Recv Request part to do this, also, refactor RecvRequest into handle request
-		printf( "Sent block\n" );
-	}
-
-	//Send an EOF
-	fmtMessage( OPT_EOF, NULL, 0, message, sizeof(message), &mesgSize );
-	if( write( accepted->sockRef, &message, mesgSize ) != mesgSize ) {
-		//TODO: handle ERROR
-		perror( "Error sending EOF" );
-	}
-
-	printf( "Done sending\n" );
-
-	close( readFile );
-	//free( filename );
-	return 0; 
-}
-*/
 
 int serverCloseAccepted( const serverSocket *accepted ) {
 	return serverStopListen( accepted ); //They do the same thing right now...
@@ -446,15 +464,9 @@ int queryUser( userOpts *option, unsigned char *data, const size_t maxDataLen, s
 
 
 	printf( "\n\nDo what?\n" );
-	printf( "1) List files\n" );
-	printf( "2) Change directories\n" );
-	printf( "3) Print current directory\n" );
-	printf( "4) Print the server's hostname\n" );
-	printf( "5) Copy a file\n" );
-	printf( "6) Make a directory\n" );
-	printf( "7) Print a file stat\n" );
-	printf( "8) Quit\n" );
-	printf( "9) Default\n" );
+	printf( "1) List files \t\t2) Change directories \t3) Print current directory\n" );
+	printf( "4) Print the hostname \t5) Copy a file \t\t6) Make a directory\n" );
+	printf( "7) Print a file stat \t8) Quit\n" );
 	printf( "? " );
 	scanf( "%u", &sel );
 
@@ -514,6 +526,8 @@ int queryUser( userOpts *option, unsigned char *data, const size_t maxDataLen, s
 		*dataLen = len1+len2; //len1 and len2 include the filenames' nulls.  dataLen is sum of both filename lengths including their terminating nulls
 	}
 
+	printf( "\n\n\n" );
+
 	return 0;
 }
 
@@ -532,4 +546,134 @@ int checkCRC( unsigned char *buffer, const size_t buffersize ) { //Check the CRC
 	}
 
 	return 0;
+}
+
+int copyInFilename( char *filename, const size_t maxFNameSize, size_t *fnamelen, const unsigned char *data, const size_t dataSize ) {
+			//Determine the length of the filename provided
+			*fnamelen = strnlen( (char *) data, dataSize );
+			if( *fnamelen <= 0 || *fnamelen >= maxFNameSize || *fnamelen >= dataSize ) { //If fnamelen1 doesn't make sense...
+				return -1; //TODO: set some errors
+			}
+
+			strncpy( filename, (char *) data, maxFNameSize ); //Copy over the filename
+			filename[*fnamelen] = '\0'; //Just make sure
+			filename[maxFNameSize-1] = '\0'; //Really make sure
+
+			return 0;
+}
+
+int prepError( int errval, unsigned char *response, const size_t maxResponseSize, size_t *actualResponseSize ) {
+	char *errorSpot, failMsg[]="Failure! ";
+
+	//Write out failure, then store in errorSpot the location we want to write the error to
+	errorSpot = stpncpy( (char *) response, failMsg, maxResponseSize );
+	strerror_r( errval, errorSpot, maxResponseSize - sizeof(failMsg) );
+
+	response[maxResponseSize - 1] = '\0'; //Make sure...
+	*actualResponseSize = strnlen( (char *) response, maxResponseSize );
+
+	return 0;
+}
+
+//This function makes sure that filename doesn't try to access any directory above highestDir
+//There are probably ways to get around these checks
+//TODO: descriptive errnos?
+int validateFilename( char *filename, const size_t filenameLen, const char *highestDir ) {
+	int i = 0;
+
+	//Is this a relative filename or an absolute one?
+	//Find the first character in the filename that's not whitespace (a tab or a space, right now)
+	for( i = 0; i < filenameLen && (filename[i]==' '||filename[i]=='\t'); i++ ) {
+	}	
+
+	//That first character must be a '/' for it to be an absolute filename
+	if( filename[i] != '/' ) {
+		//There cannot be more ".."'s than the difference between current dir depth and highest dir depth
+		unsigned int highDirDepth = 0, curDirDepth = 0, periodPairs = 0;
+		size_t highDirLen = 0, curDirLen = 0;
+
+		char currentDir[MAXFILENAMESIZE];
+		if( getcwd( currentDir, sizeof(currentDir) ) == NULL ) {
+			return -1;
+		}
+		currentDir[MAXFILENAMESIZE-1] = '\0';
+
+		if( !verifyBstartswithA( highestDir, currentDir ) ) { //This should definitely hold
+			return -1;
+		}
+
+		//Get the length of the strings
+		highDirLen = strnlen( highestDir, MAXFILENAMESIZE ); //Not the best maxlen choice, but it'll work here
+		curDirLen = strnlen( currentDir, sizeof(currentDir) );
+
+		//Get the depth of the directories in the FS - /root is depth 1, /root/home is depth 2
+		//I had to subtract 1 from the filename length so that / is depth 0, and /root/ is still depth 1
+		//That's a hack, but it works for now
+		for( i = 0; i < highDirLen-1; i++ ) {
+			if( highestDir[i] == '/' ) {
+				highDirDepth++;
+			}
+		}
+		for( i = 0; i < curDirLen-1; i++ ) {
+			if( currentDir[i] == '/' ) {
+				curDirDepth++;
+			}
+		}
+	
+		countPeriodPairs( filename, filenameLen, &periodPairs );
+
+		//periodPairs must be < highDirDepth - curDirDepth
+		//This conditional takes also considers the possiblity that we're already above the highest dir (bad)
+		if( curDirDepth - periodPairs < highDirDepth ) {
+			return -1;
+		}
+	} else { //It's absolute
+		unsigned int periodPairs = 0;
+
+		//Don't allow any ".."s
+		countPeriodPairs( filename, filenameLen, &periodPairs );
+		if( periodPairs > 0 ) {
+			return -1;
+		}
+		//The characters of the filename must match the higestDir through the end of highestDir
+		if( !verifyBstartswithA( highestDir, filename ) ) {
+			return -1;
+		}
+	}
+		
+
+	return 0;
+}
+
+int countPeriodPairs( char *filename, const size_t filenameLen, unsigned int *periodPairs ) {
+	int i = 0;
+
+	//Check every character in filename from beginning through second to last character
+	for( i = 0, *periodPairs=0; i < filenameLen-1 && filename[i+1] != '\0'; i++ ) {
+		if( filename[i] == '.' && filename[i+1] == '.' ) {
+			(*periodPairs)++;
+		}
+	}
+
+	return 0;
+}
+
+int verifyBstartswithA( const char *A, const char *B ) {
+	int i = 0;
+
+	//Go through every A and make sure it corresponds to B
+	//Don't go past the end of B, though
+	for( i = 0; A[i]!='\0' && B[i]!='\0'; i++ ) {
+		if( A[i] != B[i] ) {
+			return FALSE;
+		}
+	}
+
+	//If we're not at the end of A, then B must have ended before A
+	if( A[i] != '\0' ) {
+		return FALSE;
+	}
+
+	//We passed all the tests
+	return TRUE;
 }

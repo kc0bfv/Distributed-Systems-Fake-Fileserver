@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <unistd.h>
 
 #include "sockets.h"
 
@@ -7,6 +8,13 @@ int main( int argc, char *argv[] ) {
 	srcSpec src;
 	userOpts option;
 	int clientWantsConnection=1;
+
+	char rootDir[MAXFILENAMESIZE];
+	if( getcwd( rootDir, sizeof(rootDir) ) == NULL ) {
+		perror( "Error determining current directory" );
+		return -1;
+	}
+	rootDir[MAXFILENAMESIZE-1] = '\0'; //Always make sure
 
 	src.port = 3000;
 
@@ -30,13 +38,13 @@ int main( int argc, char *argv[] ) {
 				perror( "serverRecvRequest" );
 				return 1; //Probably do something other than die later TODO
 			}
-			printf( "%i\n", option );
+			printf( "Option %i\n", option );
 
 			//Handle the options the user specified
 			if( option == OPT_QUIT ) {
 				clientWantsConnection = 0;
 			} else {
-				serverRespRequest( &acceptedSock, option, data, dataLen );
+				serverRespRequest( &acceptedSock, option, data, dataLen, rootDir );
 			}
 		}
 		if( serverCloseAccepted( &acceptedSock ) == -1 ) {
