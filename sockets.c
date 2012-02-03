@@ -148,9 +148,15 @@ int clientDisconnect( const clientSocket *cSocket ) {
 
 
 int serverListen( serverSocket *sSocket, const srcSpec *src ) {
+	uint16_t srcport;
+
+	if( sscanf( src->port, "%hu", &srcport ) != 1 ) { //If for some reason, we didn't get a srcport
+		return -1;
+	}
+
 	bzero( &(sSocket->address), sizeof( sSocket->address ) );
 	sSocket->address.sin_family = AF_INET;
-	sSocket->address.sin_port = htons( src->port ); //TODO: fix this up later
+	sSocket->address.sin_port = htons( srcport ); //TODO: fix this up later
 	sSocket->address.sin_addr.s_addr = htonl( INADDR_LOOPBACK );
 
 	sSocket->sockRef = socket( AF_INET, SOCK_STREAM, 0 );
@@ -676,4 +682,43 @@ int verifyBstartswithA( const char *A, const char *B ) {
 
 	//We passed all the tests
 	return TRUE;
+}
+
+int parseCMD( const int argc, char * const argv[], ipSpec *src, char *rootDir, const size_t rootDirSize ) {
+	int retval;
+	size_t len;
+
+	//Accept -h, -p port, -s serveraddress, -r rootdirectory
+	while( (retval = getopt( argc, argv, "hp:s:r:" )) != EOF ) { 
+		switch( retval ) {
+			case 'h':
+				printf( "Usage: %s [-h] [-p portnum] [-s serveraddress] [-r rootdirectory]\n", argv[0] );
+				printf( "-s has no effect on the server right now.\n-r has no effect on the client right now.\n" );
+				return -1;
+				break;
+			case 'p':
+				len = strnlen( optarg, sizeof(src->port) );
+				if( len < sizeof(src->port) ) {
+					strncpy( src->port, optarg, sizeof(src->port) );
+					src->port[sizeof(src->port)] = '\0';
+				}
+				break;
+			case 's':
+				len = strnlen( optarg, sizeof(src->addr) );
+				if( len < sizeof(src->addr) ) {
+					strncpy( src->addr, optarg, sizeof(src->addr) );
+					src->addr[sizeof(src->addr)] = '\0';
+				}
+				break;
+			case 'r':
+				len = strnlen( optarg, rootDirSize );
+				if( len < rootDirSize ) {
+					strncpy( rootDir, optarg, rootDirSize );
+					rootDir[rootDirSize] = '\0';
+				}
+				break;
+			default: break;
+		}
+	}
+	return 0;
 }

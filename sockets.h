@@ -9,14 +9,18 @@ typedef struct mySocketTag {
 } clientSocket;
 typedef clientSocket serverSocket;
 
-typedef struct destSpecTag {
-	char *addr;
-	char *port;
-} destSpec;
+typedef struct ipSpecTag {
+	char addr[256]; //I guess this could be pretty long...
+	char port[7]; //ports shouldn't be longer than 5 chars...
+} ipSpec;
 
+typedef ipSpec destSpec;
+typedef ipSpec srcSpec;
+
+/*
 typedef struct srcSpecTag {
 	uint16_t port;
-} srcSpec;
+} srcSpec;*/
 
 typedef enum userOptsTag {
 	//Client Requests - no response
@@ -67,6 +71,7 @@ int queryUser( userOpts *option, unsigned char *data, const size_t maxDataLen, s
 int checkCRC( unsigned char *buffer, const size_t buffersize );
 int copyInFilename( char *filename, const size_t maxFNameSize, size_t *fnamelen, const unsigned char *data, const size_t dataSize );
 int prepError( int errval, unsigned char *response, const size_t maxResponseSize, size_t *actualResponseSize );
+int parseCMD( const int argc, char * const argv[], ipSpec *src, char *rootDir, const size_t rootDirSize );
 
 //Used in validating the "don't go above the root" rules
 int validateFilename( char *filename, const size_t filenameLen, const char *highestDir );

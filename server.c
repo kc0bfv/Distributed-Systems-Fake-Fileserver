@@ -1,9 +1,10 @@
 #include <stdio.h>
-#include <unistd.h>
+#include <unistd.h> //getcwd
+#include <string.h>
 
 #include "sockets.h"
 
-int main( int argc, char *argv[] ) {
+int main( int argc, char **argv ) {
 	serverSocket sSocket, acceptedSock;
 	srcSpec src;
 	userOpts option;
@@ -16,7 +17,14 @@ int main( int argc, char *argv[] ) {
 	}
 	rootDir[MAXFILENAMESIZE-1] = '\0'; //Always make sure
 
-	src.port = 3000;
+	strncpy( src.port, "3000", sizeof(src.port) );
+	src.port[5] = '\0';
+
+	//Take the default source port and root directory
+	if( parseCMD( argc, argv, &src, rootDir, sizeof(rootDir) ) != 0 ) {
+		return 1; //This should happen when the user specifies -h
+	}
+
 
 	if( serverListen( &sSocket, &src ) == -1 ) {
 		perror( "ServerListen" );
