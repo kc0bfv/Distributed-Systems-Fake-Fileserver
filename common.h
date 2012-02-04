@@ -34,6 +34,8 @@ typedef enum userOptsTag {
 	OPT_ERROR,
 } userOpts;
 
+char *resolveOpt[OPT_ERROR+1];
+
 #define OPT_FRESPONSEOPT OPT_LS
 #define OPT_LRESPONSEOPT OPT_MKDIR
 #define OPT_FFILENAMEREQ OPT_CD

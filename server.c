@@ -12,15 +12,13 @@ int forkedFunc( procParams *params ) {
 	unsigned char data[MAXDATASIZE];
 	size_t dataLen;
 
-	params->status = STAT_RUNNING;
 
 	while( clientWantsConnection==1 ) {
 		if( serverRecvRequest( acceptedSock, &option, data, sizeof(data), &dataLen ) == -1 ) {
 			perror( "Error receiving client request" );
-			params->status = STAT_FINISHED;
 			return 1; //Probably do something other than die later TODO
 		}
-		printf( "Operation: Client %i - Option %i\n", params->index, option );
+		printf( " Operation: Client %i - Option %s\n", params->index, resolveOpt[option] );
 
 		//Handle the options the user specified
 		if( option == OPT_QUIT ) {
@@ -31,11 +29,9 @@ int forkedFunc( procParams *params ) {
 	}
 	if( serverCloseAccepted( acceptedSock ) == -1 ) {
 		perror( "Error closing client socket" );
-		params->status = STAT_FINISHED;
 		return 1; //Just die - there was an error while closing...
 	}	
 
-	params->status = STAT_FINISHED;
 	return 0;
 }
 
@@ -73,7 +69,6 @@ int main( int argc, char **argv ) {
 		params->next = NULL;
 		params->index = ++goRound;
 		params->rootDir = rootDir;
-		params->status = STAT_NOTSTARTED;
 
 		//Accept a connection
 		if( serverAccept( &sSocket, params->acceptedSock ) == -1 ) {
@@ -91,22 +86,14 @@ int main( int argc, char **argv ) {
 			printf( "Connection: PID %i - Client index %i\n", params->pid, params->index );
 		}
 
-		if( procs == NULL ) {
-			printf( "YESS!\n" );
-		}
-
 		//Add the process info to a linked list
 		addProc( &procs, params );
-
-		if( procs == NULL ) {
-			printf( "NOES!\n" );
-		}
 
 		//Peruse the list to clean up finished clients
 		procParams *cur = procs;
 		for( cur = procs; cur != NULL; cur = cur->next ) {
-			if( cur->status == STAT_FINISHED ) {
-				printf( "Client %i disconnected", cur->index );
+			if( waitpid( cur->pid, NULL, WNOHANG ) != 0 ) { //If waitpid found a stopped process
+				printf( "Disconnect: Client %i\n", cur->index );
 				remProc( &procs, cur );
 			}
 		}

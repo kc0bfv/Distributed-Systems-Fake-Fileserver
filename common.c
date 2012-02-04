@@ -15,6 +15,9 @@
 #include "common.h"
 #include "crc.h"
 
+//Build an array which resolves userOpts to human strings
+char *resolveOpt[] = {"No Selection","Quit","ls","pwd","hostname","cp","cd","stat","mkdir","error"};
+
 int fmtMessage( const userOpts userOpt, const unsigned char *data, const size_t dataLen, unsigned char *message, const size_t msgBufSize, size_t *finalMsgSize ) {
 	*finalMsgSize = HEADERSIZE+dataLen; //The final size must be 1(cmd byte)+msglen)+4(crc32)+dataLen
 	if( (msgBufSize < *finalMsgSize) || (dataLen > MAXDATASIZE) || (dataLen < 0) ) { //Check for invalid buffer sizes

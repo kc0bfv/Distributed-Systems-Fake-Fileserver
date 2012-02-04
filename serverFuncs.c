@@ -347,8 +347,6 @@ int remProc( procParams **listHeadPtr, procParams *remItem ) {
 		prev->next = cur->next;
 	}
 
-	//waitpid( cur->pid, NULL, WNOHANG ); //Clean up the pid, make sure we don't hang in any case
-	waitpid( cur->pid, NULL, 0 );
 	free( cur->acceptedSock );
 	free( cur );
 

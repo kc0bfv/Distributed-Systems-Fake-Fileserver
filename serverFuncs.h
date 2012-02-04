@@ -9,17 +9,10 @@ typedef mySocket serverSocket;
 
 typedef ipSpec srcSpec;
 
-typedef enum procStatusTag {
-	STAT_NOTSTARTED,
-	STAT_RUNNING,
-	STAT_FINISHED
-} procStatus;
-
 typedef struct procParamsDef {
 	serverSocket *acceptedSock;
 	int index;
 	char *rootDir;
-	procStatus status;
 	pid_t pid;
 	struct procParamsDef *next; //For linked list operation
 } procParams;
