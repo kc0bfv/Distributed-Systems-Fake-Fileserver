@@ -12,140 +12,7 @@
 
 #include <stdio.h>
 
-#include "sockets.h"
-#include "crc.h"
-
-int clientConnect( clientSocket *cSocket, const destSpec *dest ) {
-	struct addrinfo *retAddrs, hints;
-
-	bzero( &hints, sizeof( hints ) );
-	hints.ai_family = AF_INET;
-	hints.ai_socktype = SOCK_STREAM;
-
-	//Return at least one address for whatever hostname and port the user specified
-	//This function call allocates RAM which must be deallocated with freeaddrinfo
-	if( getaddrinfo( dest->addr, dest->port, &hints, &retAddrs ) != 0 ) {
-		return -1; //Error
-	}
-
-	//Copy the first address returned into our persistent address storage
-	//A better thing to do would be to test each returned address in turn, but whatever
-	memcpy( &(cSocket->address), retAddrs->ai_addr, sizeof( cSocket->address ) );
-
-	//Complements getaddrinfo - frees the RAM it allocated
-	freeaddrinfo( retAddrs );
-	
-	//Open the socket
-	cSocket->sockRef = socket( AF_INET, SOCK_STREAM, 0 );
-	if( cSocket->sockRef == -1 ) {
-		return -1; //Error
-	}
-
-	//Connect the socket to the remote host
-	if( connect( cSocket->sockRef, (struct sockaddr *) &(cSocket->address), sizeof(cSocket->address) ) == -1 )	{
-		return -1; //Error
-	}
-
-	return 0; //success
-}
-
-int clientSendOpt( const clientSocket *cSocket, const userOpts option, const unsigned char *data, const size_t dataLen ) {
-	unsigned char output[MESSAGEBUFSIZE];
-	size_t outputAmt=0;
-
-	fmtMessage( option, data, dataLen, output, sizeof( output ), &outputAmt );
-
-	if( write( cSocket->sockRef, &output, outputAmt ) != outputAmt ) {
-		return -1; //Error
-	}
-
-	return 0;
-}
-
-int clientGetResp( const clientSocket *cSocket, const userOpts option, char *response, size_t responseLen, const size_t maxResponseLen ) {
-	unsigned char message[MESSAGEBUFSIZE];
-
-	ssize_t bytesRead = 0;
-
-	bzero( response, sizeof(response) ); //Fill response with Null chars
-
-	bytesRead = read(cSocket->sockRef, (char *) message, sizeof(message));
-
-	if( checkCRC( message, bytesRead ) != 0 ) {
-		printf( "Error CRC checking %i\n", (int) bytesRead );
-		return -1; //Error verifying crc - TODO: better errno
-	}
-
-	responseLen = bytesRead - HEADERSIZE; //TODO: make sure this = header specified size
-
-	if( responseLen > maxResponseLen ) {
-		printf( "response is too large\n" ); //TODO:Do an errno for this...
-		return -1;
-	}
-
-	memcpy( response, &(message[DATASEGOFF]), responseLen );
-	response[responseLen] = '\0'; //Let's make sure it's null terminated
-	response[maxResponseLen] = '\0'; //Let's make damn sure it's terminated
-
-	return 0;
-}
-
-/*
-int clientWaitForFile( const clientSocket *cSocket, const unsigned char *filename, const size_t filenameLen ) {
-	int writeFile = 0;
-	ssize_t bytesRead = 0;
-	unsigned int keepGoing=1;
-	unsigned char message[MESSAGEBUFSIZE];
-
-	printf( "Starting wait\n" );
-
-	writeFile = open( (char *) filename, O_WRONLY|O_CREAT|O_EXCL ); //TODO:Make sure all exit points close the file
-	if( writeFile < 0 ) {
-		printf( "Error opening %s\n", (char *) filename );
-		return -1; //Error opening the file
-	}
-
-	while( keepGoing == 1 ) {
-		bytesRead = read(cSocket->sockRef, message, sizeof(message));
-		printf( "Got a Read\n" );
-
-		if( checkCRC( message, bytesRead ) != 0 ) {
-			printf( "Error CRC checking %i\n", (int) bytesRead );
-			close( writeFile );
-			return -1; //Error verifying crc - TODO: better errno
-		}
-
-		if( message[COMMANDOFF] == OPT_EOF ) { //If we're at the end of the file
-			keepGoing = 0;
-		} else if( message[COMMANDOFF] == OPT_SENDING ) {
-			if( write( writeFile, & (message[DATASEGOFF]), bytesRead-HEADERSIZE ) != bytesRead-HEADERSIZE ) {
-				printf( "Error writing\n" );
-				close( writeFile );
-				return -1; //Error writing to file - TODO: better errno
-			}
-		} else {
-			printf( "Weird COMMAND\n" );
-			close( writeFile );
-			return -1; //Error receiving file - TODO: set errno
-		}
-	}
-
-	printf( "Closing writefile\n" );
-
-	close( writeFile );
-
-	return 0;
-}*/
-
-//Disconnect from the remote host
-int clientDisconnect( const clientSocket *cSocket ) {
-	if( close( cSocket->sockRef ) != 0 ) {
-		return -1; //Error - What does that mean on a close?  Probably, program should die
-	}
-
-	return 0;
-}
-
+#include "serverFuncs.h"
 
 int serverListen( serverSocket *sSocket, const srcSpec *src ) {
 	uint16_t srcport;
@@ -428,132 +295,6 @@ int serverStopListen( const serverSocket *sSocket ) {
 	return 0;
 }
 
-int fmtMessage( const userOpts userOpt, const unsigned char *data, const size_t dataLen, unsigned char *message, const size_t msgBufSize, size_t *finalMsgSize ) {
-	*finalMsgSize = HEADERSIZE+dataLen; //The final size must be 1(cmd byte)+msglen)+4(crc32)+dataLen
-	if( (msgBufSize < *finalMsgSize) || (dataLen > MAXDATASIZE) || (dataLen < 0) ) { //Check for invalid buffer sizes
-		return -1; //Error
-	}
-
-	bzero( message, msgBufSize ); //Zero out the output buffer - checksum area must be 0 to calculate checksum
-	if( dataLen > 0 ) { //If dataLen == 0, there's no data to copy
-		memcpy( &(message[HEADERSIZE]), data, dataLen );
-	}
-	message[0] = userOpt; //Truncate the userOption down to one byte and put it in there
-
-	{ //Do a conversion from little endian to big, and drop the size into the message
-		intToCharUnion conv;
-		conv.intSpot = *finalMsgSize;
-
-		//Reverse the order and store it in the message
-		int i = 0;
-		for( i = 0; i < 4; i++ ) {
-			message[4-i] = conv.bytes[i];
-		}
-	}
-
-	{
-		intToCharUnion conv;
-		crc( message, *finalMsgSize, &conv.intSpot );
-
-		memcpy( &(message[5]), conv.bytes, 4 ); //Copy the 4 bytes of a crc32
-	}
-
-	return 0;
-}
-
-
-int queryUser( userOpts *option, unsigned char *data, const size_t maxDataLen, size_t *dataLen ) {
-	unsigned int sel = 0;
-	*option = OPT_NOSELECTION; //Setup a default
-	data[0] = '\0'; //Defaults
-	*dataLen = 0;
-
-
-	printf( "\n\nDo what?\n" );
-	printf( "1) List files \t\t2) Change directories \t3) Print current directory\n" );
-	printf( "4) Print the hostname \t5) Copy a file \t\t6) Make a directory\n" );
-	printf( "7) Print a file stat \t8) Quit\n" );
-	printf( "? " );
-	scanf( "%u", &sel );
-
-	switch( sel ) {
-		case 1: *option = OPT_LS; break;
-		case 2: *option = OPT_CD; break;
-		case 3: *option = OPT_PWD; break;
-		case 4: *option = OPT_HN; break;
-		case 5: *option = OPT_CP; break;
-		case 6: *option = OPT_MKDIR; break;
-		case 7: *option = OPT_STAT; break;
-		case 8: *option = OPT_QUIT; break;
-		default: *option = OPT_NOSELECTION;
-	}
-
-	if( (*option >= OPT_FFILENAMEREQ) && (*option <= OPT_LFILENAMEREQ) ) {
-		char buffer[MAXFILENAMESIZE];
-		size_t len;
-		printf( "Enter name: " );
-		{	char formatStr[10]; //Dynamically build the format string, then read in the filename
-			snprintf( formatStr, sizeof(formatStr), "%%%lus", sizeof(buffer) );
-			scanf( formatStr, buffer ); }
-		buffer[sizeof(buffer)-1] = '\0';
-		len = strnlen( buffer, sizeof(buffer) ) + 1; //+1 makes the length include the null character
-		if( len > sizeof(buffer) || len > MAXDATASIZE ) { //If the user entered malformed data, or if the data is too large to fit in the data segment
-			return -1; //Invalid user data. - Error TODO: set errno
-		}
-
-		strncpy( (char *) data, buffer, maxDataLen ); //Use strncpy instead of memcpy to fill remainder of array with null
-		*dataLen = len;
-	} else if( *option == OPT_CP ) {
-		char buffer1[256], buffer2[256];
-		size_t len1, len2;
-
-		printf( "Enter original name: " );
-		{	char formatStr[10]; //Dynamically build the format string, then read in the filename
-			snprintf( formatStr, sizeof(formatStr), "%%%lus", sizeof(buffer1) );
-			scanf( formatStr, buffer1 ); }
-		buffer1[sizeof(buffer1)-1] = '\0';
-		len1 = strnlen( buffer1, sizeof(buffer1) ) + 1; //+1 makes the length include the null character
-		if( len1 > sizeof(buffer1) || len1 > MAXDATASIZE ) { //If the user entered malformed data, or if the data is too large to fit in the data segment
-			return -1; //Invalid user data. - Error TODO: set errno
-		}
-
-		printf( "Enter destination name: " );
-		{	char formatStr[10]; //Dynamically build the format string, then read in the filename
-			snprintf( formatStr, sizeof(formatStr), "%%%lus", sizeof(buffer2) );
-			scanf( formatStr, buffer2 ); }
-		buffer2[sizeof(buffer2)-1] = '\0';
-		len2 = strnlen( buffer2, sizeof(buffer2) ) + 1; //+1 makes the length include the null character
-		if( len2 > sizeof(buffer2) || len2+len1 > MAXDATASIZE ) { //If the user entered malformed data, or if the data is too large to fit in the data segment
-			return -1; //Invalid user data. - Error TODO: set errno
-		}
-
-		strncpy( (char *) data, buffer1, maxDataLen ); //Copy initial filename in, null, dest filename, null
-		strncpy( (char *) &(data[len1]), buffer2, maxDataLen-len1 ); //Use strncpy instead of memcpy to fill remainder of array with null.  Copy the filename in so it starts after initial filename's terminating null
-		*dataLen = len1+len2; //len1 and len2 include the filenames' nulls.  dataLen is sum of both filename lengths including their terminating nulls
-	}
-
-	printf( "\n\n\n" );
-
-	return 0;
-}
-
-int checkCRC( unsigned char *buffer, const size_t buffersize ) { //Check the CRC
-	intToCharUnion conv;
-	uint32_t crcRes;
-
-	memcpy( conv.bytes, &(buffer[CHCKSUMOFF]), CHCKSUMLEN ); //copy the crc32 bytes
-	bzero( &(buffer[CHCKSUMOFF]), CHCKSUMLEN ); //Zero out the checksum in the buffer
-
-	crc( buffer, buffersize, &crcRes );
-	if( crcRes != conv.intSpot ) {
-		//errno=0; //Probably make this more useful TODO
-		errno=2;
-		return -1; //CRC Error
-	}
-
-	return 0;
-}
-
 int copyInFilename( char *filename, const size_t maxFNameSize, size_t *fnamelen, const unsigned char *data, const size_t dataSize ) {
 			//Determine the length of the filename provided
 			*fnamelen = strnlen( (char *) data, dataSize );
@@ -568,15 +309,48 @@ int copyInFilename( char *filename, const size_t maxFNameSize, size_t *fnamelen,
 			return 0;
 }
 
-int prepError( int errval, unsigned char *response, const size_t maxResponseSize, size_t *actualResponseSize ) {
-	char *errorSpot, failMsg[]="Failure! ";
+//Add a process to our linked list of processes
+int addProc( procParams **listHeadPtr, procParams *newItem ) {
+	if( *listHeadPtr == NULL ) {
+		*listHeadPtr = newItem;
+	} else {
+		procParams *cur;
+		for( cur = *listHeadPtr; cur->next != NULL; cur=cur->next ) { //Peruse to the last item in the list
+		}
+		cur->next = newItem;
+		newItem->next = NULL; //make sure
+	}
 
-	//Write out failure, then store in errorSpot the location we want to write the error to
-	errorSpot = stpncpy( (char *) response, failMsg, maxResponseSize );
-	strerror_r( errval, errorSpot, maxResponseSize - sizeof(failMsg) );
+	return 0;
+}
 
-	response[maxResponseSize - 1] = '\0'; //Make sure...
-	*actualResponseSize = strnlen( (char *) response, maxResponseSize );
+//Remove a thread from our linked list.  Also, deallocate any memory it has, and cleanup the PID
+int remProc( procParams **listHeadPtr, procParams *remItem ) {
+	if( *listHeadPtr == NULL ) {
+		return -1;  //no items are in the list - that's bad
+	}
+
+	procParams *cur = *listHeadPtr, *prev = NULL;
+
+	//Peruse to the correct list item
+	for( cur = *listHeadPtr; cur != NULL && cur != remItem; prev=cur, cur=cur->next ) {
+	}
+
+	if( cur == NULL ) {
+		return -1; //we didn't find remItem, so we can't remove it
+	}
+
+	//Cut out the item
+	if( cur == *listHeadPtr ) { //we're removing the head of the list
+		*listHeadPtr = cur->next;
+	} else {
+		prev->next = cur->next;
+	}
+
+	//waitpid( cur->pid, NULL, WNOHANG ); //Clean up the pid, make sure we don't hang in any case
+	waitpid( cur->pid, NULL, 0 );
+	free( cur->acceptedSock );
+	free( cur );
 
 	return 0;
 }
@@ -682,43 +456,4 @@ int verifyBstartswithA( const char *A, const char *B ) {
 
 	//We passed all the tests
 	return TRUE;
-}
-
-int parseCMD( const int argc, char * const argv[], ipSpec *src, char *rootDir, const size_t rootDirSize ) {
-	int retval;
-	size_t len;
-
-	//Accept -h, -p port, -s serveraddress, -r rootdirectory
-	while( (retval = getopt( argc, argv, "hp:s:r:" )) != EOF ) { 
-		switch( retval ) {
-			case 'h':
-				printf( "Usage: %s [-h] [-p portnum] [-s serveraddress] [-r rootdirectory]\n", argv[0] );
-				printf( "-s has no effect on the server right now.\n-r has no effect on the client right now.\n" );
-				return -1;
-				break;
-			case 'p':
-				len = strnlen( optarg, sizeof(src->port) );
-				if( len < sizeof(src->port) ) {
-					strncpy( src->port, optarg, sizeof(src->port) );
-					src->port[sizeof(src->port)] = '\0';
-				}
-				break;
-			case 's':
-				len = strnlen( optarg, sizeof(src->addr) );
-				if( len < sizeof(src->addr) ) {
-					strncpy( src->addr, optarg, sizeof(src->addr) );
-					src->addr[sizeof(src->addr)] = '\0';
-				}
-				break;
-			case 'r':
-				len = strnlen( optarg, rootDirSize );
-				if( len < rootDirSize ) {
-					strncpy( rootDir, optarg, rootDirSize );
-					rootDir[rootDirSize] = '\0';
-				}
-				break;
-			default: break;
-		}
-	}
-	return 0;
 }

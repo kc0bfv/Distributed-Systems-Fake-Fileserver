@@ -1,14 +1,47 @@
 #include <stdio.h>
 #include <unistd.h> //getcwd
+#include <stdlib.h> //malloc
 #include <string.h>
 
-#include "sockets.h"
+#include "serverFuncs.h"
 
-int main( int argc, char **argv ) {
-	serverSocket sSocket, acceptedSock;
-	srcSpec src;
+int forkedFunc( procParams *params ) {
+	serverSocket *acceptedSock = params->acceptedSock;
 	userOpts option;
 	int clientWantsConnection=1;
+	unsigned char data[MAXDATASIZE];
+	size_t dataLen;
+
+	params->status = STAT_RUNNING;
+
+	while( clientWantsConnection==1 ) {
+		if( serverRecvRequest( acceptedSock, &option, data, sizeof(data), &dataLen ) == -1 ) {
+			perror( "Error receiving client request" );
+			params->status = STAT_FINISHED;
+			return 1; //Probably do something other than die later TODO
+		}
+		printf( "Operation: Client %i - Option %i\n", params->index, option );
+
+		//Handle the options the user specified
+		if( option == OPT_QUIT ) {
+			clientWantsConnection = 0;
+		} else {
+			serverRespRequest( acceptedSock, option, data, dataLen, params->rootDir );
+		}
+	}
+	if( serverCloseAccepted( acceptedSock ) == -1 ) {
+		perror( "Error closing client socket" );
+		params->status = STAT_FINISHED;
+		return 1; //Just die - there was an error while closing...
+	}	
+
+	params->status = STAT_FINISHED;
+	return 0;
+}
+
+int main( int argc, char **argv ) {
+	serverSocket sSocket;
+	srcSpec src;
 
 	char rootDir[MAXFILENAMESIZE];
 	if( getcwd( rootDir, sizeof(rootDir) ) == NULL ) {
@@ -27,43 +60,60 @@ int main( int argc, char **argv ) {
 
 
 	if( serverListen( &sSocket, &src ) == -1 ) {
-		perror( "ServerListen" );
+		perror( "Error while beginning to listen" );
 		return 1;
 	}
 	
-	int goRound = 1;
-	while( goRound == 1 ) {
-		if( serverAccept( &sSocket, &acceptedSock ) == -1 ) {
-			perror( "serverAccept" );
+	int goRound = 0;
+	procParams *procs = NULL;
+	while( 1 == 1 ) {
+		//Allocate memory for all the thread parameters
+		procParams *params = (procParams *) malloc( sizeof(procParams) );
+		params->acceptedSock = (serverSocket *) malloc( sizeof(serverSocket) );
+		params->next = NULL;
+		params->index = ++goRound;
+		params->rootDir = rootDir;
+		params->status = STAT_NOTSTARTED;
+
+		//Accept a connection
+		if( serverAccept( &sSocket, params->acceptedSock ) == -1 ) {
+			perror( "Error accepting client connection" );
 			return 1; //Just die for now, maybe try again, later TODO
 		}
-		//TODO: thread off at this point
-		clientWantsConnection = 1;
-		unsigned char data[MAXDATASIZE];
-		size_t dataLen;
-		while( clientWantsConnection==1 ) {
-			if( serverRecvRequest( &acceptedSock, &option, data, sizeof(data), &dataLen ) == -1 ) {
-				perror( "serverRecvRequest" );
-				return 1; //Probably do something other than die later TODO
-			}
-			printf( "Option %i\n", option );
 
-			//Handle the options the user specified
-			if( option == OPT_QUIT ) {
-				clientWantsConnection = 0;
-			} else {
-				serverRespRequest( &acceptedSock, option, data, dataLen, rootDir );
+		pid_t pid = 0;
+		//Farm the connection off to a new process
+		if( (pid = fork()) == 0 ) { //if we're the child
+			forkedFunc( params );
+			return 0;
+		} else {
+			params->pid = pid;
+			printf( "Connection: PID %i - Client index %i\n", params->pid, params->index );
+		}
+
+		if( procs == NULL ) {
+			printf( "YESS!\n" );
+		}
+
+		//Add the process info to a linked list
+		addProc( &procs, params );
+
+		if( procs == NULL ) {
+			printf( "NOES!\n" );
+		}
+
+		//Peruse the list to clean up finished clients
+		procParams *cur = procs;
+		for( cur = procs; cur != NULL; cur = cur->next ) {
+			if( cur->status == STAT_FINISHED ) {
+				printf( "Client %i disconnected", cur->index );
+				remProc( &procs, cur );
 			}
 		}
-		if( serverCloseAccepted( &acceptedSock ) == -1 ) {
-			perror( "serverCloseAccepted" );
-			return 1; //Just die - there was an error while closing...
-		}
-		//goRound = 0; //Just do one connection for now, then die 
 	}
 
 	if( serverStopListen( &sSocket ) == -1 ) {
-		perror( "serverStopListen" );
+		perror( "Error finishing listening" );
 		return 1;
 	}
 

@@ -6,21 +6,12 @@
 typedef struct mySocketTag {
 	int sockRef;
 	struct sockaddr_in address;
-} clientSocket;
-typedef clientSocket serverSocket;
+} mySocket;
 
 typedef struct ipSpecTag {
 	char addr[256]; //I guess this could be pretty long...
 	char port[7]; //ports shouldn't be longer than 5 chars...
 } ipSpec;
-
-typedef ipSpec destSpec;
-typedef ipSpec srcSpec;
-
-/*
-typedef struct srcSpecTag {
-	uint16_t port;
-} srcSpec;*/
 
 typedef enum userOptsTag {
 	//Client Requests - no response
@@ -53,30 +44,14 @@ typedef union intToCharUnionTag{
 	unsigned char bytes[4];
 } intToCharUnion;
 
-int clientConnect( clientSocket *cSocket, const destSpec *dest );
-int clientSendOpt( const clientSocket *cSocket, const userOpts option, const unsigned char *data, const size_t dataLen );
-int clientGetResp( const clientSocket *cSocket, const userOpts option, char *response, size_t responseLen, const size_t maxResponseLen );
-int clientDisconnect( const clientSocket *cSocket );
-
-int serverListen( serverSocket *sSocket, const srcSpec *src	);
-int serverAccept( const serverSocket *sSocket, serverSocket *accepted ); //Currently blocking
-int serverRecvRequest( const serverSocket *accepted, userOpts *option, unsigned char *data, const size_t maxDataSize, size_t *dataSize );
-int serverRespRequest( const serverSocket *accepted, const userOpts option, const unsigned char *data, const size_t dataSize, const char *highestDir );
-int serverCloseAccepted( const serverSocket *accepted );
-int serverStopListen( const serverSocket *sSocket );
-
+//Utilities
 int fmtMessage( const userOpts userOpt, const unsigned char *data, const size_t dataLen, unsigned char *message, const size_t msgBufSize, size_t *finalMsgSize );
 
-int queryUser( userOpts *option, unsigned char *data, const size_t maxDataLen, size_t *dataLen );
 int checkCRC( unsigned char *buffer, const size_t buffersize );
-int copyInFilename( char *filename, const size_t maxFNameSize, size_t *fnamelen, const unsigned char *data, const size_t dataSize );
-int prepError( int errval, unsigned char *response, const size_t maxResponseSize, size_t *actualResponseSize );
-int parseCMD( const int argc, char * const argv[], ipSpec *src, char *rootDir, const size_t rootDirSize );
 
-//Used in validating the "don't go above the root" rules
-int validateFilename( char *filename, const size_t filenameLen, const char *highestDir );
-int countPeriodPairs( char *filename, const size_t filenameLen, unsigned int *periodPairs );
-int verifyBstartswithA( const char *A, const char *B );
+int prepError( int errval, unsigned char *response, const size_t maxResponseSize, size_t *actualResponseSize );
+
+int parseCMD( const int argc, char * const argv[], ipSpec *src, char *rootDir, const size_t rootDirSize );
 
 /*Protocol Being Considered
 Basic message:
