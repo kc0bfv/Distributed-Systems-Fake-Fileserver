@@ -84,7 +84,7 @@ int clientGetResp( const clientSocket *cSocket, const userOpts option, char *res
 
 	memcpy( response, &(message[DATASEGOFF]), responseLen );
 	response[responseLen] = '\0'; //Let's make sure it's null terminated
-	response[maxResponseLen] = '\0'; //Let's make damn sure it's terminated
+	response[maxResponseLen-1] = '\0'; //Let's make damn sure it's terminated
 
 	return 0;
 }
@@ -129,7 +129,11 @@ int queryUser( userOpts *option, unsigned char *data, const size_t maxDataLen, s
 		size_t len;
 		printf( "Enter name: " );
 		{	char formatStr[10]; //Dynamically build the format string, then read in the filename
+#ifdef __APPLE__
 			snprintf( formatStr, sizeof(formatStr), "%%%lus", sizeof(buffer) );
+#elif defined __linux__
+			snprintf( formatStr, sizeof(formatStr), "%%%us", sizeof(buffer) );
+#endif
 			scanf( formatStr, buffer ); }
 		buffer[sizeof(buffer)-1] = '\0';
 		len = strnlen( buffer, sizeof(buffer) ) + 1; //+1 makes the length include the null character
@@ -145,7 +149,11 @@ int queryUser( userOpts *option, unsigned char *data, const size_t maxDataLen, s
 
 		printf( "Enter original name: " );
 		{	char formatStr[10]; //Dynamically build the format string, then read in the filename
+#ifdef __APPLE__
 			snprintf( formatStr, sizeof(formatStr), "%%%lus", sizeof(buffer1) );
+#elif defined __linux__
+			snprintf( formatStr, sizeof(formatStr), "%%%us", sizeof(buffer1) );
+#endif
 			scanf( formatStr, buffer1 ); }
 		buffer1[sizeof(buffer1)-1] = '\0';
 		len1 = strnlen( buffer1, sizeof(buffer1) ) + 1; //+1 makes the length include the null character
@@ -155,7 +163,11 @@ int queryUser( userOpts *option, unsigned char *data, const size_t maxDataLen, s
 
 		printf( "Enter destination name: " );
 		{	char formatStr[10]; //Dynamically build the format string, then read in the filename
+#ifdef __APPLE__
 			snprintf( formatStr, sizeof(formatStr), "%%%lus", sizeof(buffer2) );
+#elif defined __linux__
+			snprintf( formatStr, sizeof(formatStr), "%%%us", sizeof(buffer2) );
+#endif
 			scanf( formatStr, buffer2 ); }
 		buffer2[sizeof(buffer2)-1] = '\0';
 		len2 = strnlen( buffer2, sizeof(buffer2) ) + 1; //+1 makes the length include the null character

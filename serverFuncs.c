@@ -23,8 +23,8 @@ int serverListen( serverSocket *sSocket, const srcSpec *src ) {
 
 	bzero( &(sSocket->address), sizeof( sSocket->address ) );
 	sSocket->address.sin_family = AF_INET;
-	sSocket->address.sin_port = htons( srcport ); //TODO: fix this up later
-	sSocket->address.sin_addr.s_addr = htonl( INADDR_LOOPBACK );
+	sSocket->address.sin_port = htons( srcport );
+	sSocket->address.sin_addr.s_addr = htonl( INADDR_ANY );
 
 	sSocket->sockRef = socket( AF_INET, SOCK_STREAM, 0 );
 	if( sSocket->sockRef == -1 ) {
@@ -139,7 +139,11 @@ int serverRespRequest( const serverSocket *accepted, const userOpts option, cons
 
 								//This returns the number of chars it actually wrote
 								len = snprintf( (char *) response, sizeof(response),
+#ifdef __APPLE__
 										"File: '%s'\nSize: %lli\tBlocks: %lli\tIO Block: %i\nDevice: %i\tInode: %lli\tHardlinks: %i\nAccess: %i\tUid: %i\tGid: %i\nAccess: %s Modify: %s Change: %s ",
+#elif defined __linux__
+										"File: '%s'\nSize: %li\tBlocks: %li\tIO Block: %li\nDevice: %lli\tInode: %lu\tHardlinks: %i\nAccess: %i\tUid: %i\tGid: %i\nAccess: %s Modify: %s Change: %s ",
+#endif
 										filename, statBuf.st_size, statBuf.st_blocks, statBuf.st_blksize,
 										statBuf.st_rdev, statBuf.st_ino, statBuf.st_nlink, statBuf.st_mode,
 										statBuf.st_uid, statBuf.st_gid, times[0], times[1], times[2] );
@@ -227,13 +231,14 @@ int serverRespRequest( const serverSocket *accepted, const userOpts option, cons
 				{
 					DIR *dir = opendir( "./" );
 					struct dirent *entry;
-					size_t pos = 0;
+					size_t pos = 0, templen=0;
 					while( (entry=readdir(dir)) != NULL ) {
-						if( pos + entry->d_namlen + 1 < sizeof(response) ) { //If appending this entry and a newline to the response won't bust the response buffer...
-							strncat( (char *) &(response[pos]), entry->d_name, entry->d_namlen );
-							response[pos+entry->d_namlen] = '\n'; //Put newline at end of the entry
-							response[pos+entry->d_namlen+1] = '\0'; //Make sure there's a null after it all
-							pos += entry->d_namlen+1; //Update the position we write to
+						templen = strnlen( entry->d_name, NAME_MAX );
+						if( pos + templen + 1 < sizeof(response) ) { //If appending this entry and a newline to the response won't bust the response buffer...
+							strncat( (char *) &(response[pos]), entry->d_name, templen );
+							response[pos+templen] = '\n'; //Put newline at end of the entry
+							response[pos+templen+1] = '\0'; //Make sure there's a null after it all
+							pos += templen+1; //Update the position we write to
 						} else {
 							//TODO: Poop, not enough room to add the filename.  Oh well, just throw it out for now
 						}

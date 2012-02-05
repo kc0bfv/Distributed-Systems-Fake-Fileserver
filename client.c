@@ -29,7 +29,7 @@ int main( int argc, char *argv[] ) {
 		unsigned char data[MAXDATASIZE];
 		size_t dataLen;
 		char response[MAXDATASIZE+1];
-		size_t responseLen;
+		size_t responseLen = 0;
 
 		//Send the current option, if there is one, and the associated parameters
 		if( option != OPT_NOSELECTION ) {

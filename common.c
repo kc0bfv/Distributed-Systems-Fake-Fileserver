@@ -98,14 +98,14 @@ int parseCMD( const int argc, char * const argv[], ipSpec *src, char *rootDir, c
 				len = strnlen( optarg, sizeof(src->port) );
 				if( len < sizeof(src->port) ) {
 					strncpy( src->port, optarg, sizeof(src->port) );
-					src->port[sizeof(src->port)] = '\0';
+					src->port[sizeof(src->port)-1] = '\0';
 				}
 				break;
 			case 's':
 				len = strnlen( optarg, sizeof(src->addr) );
 				if( len < sizeof(src->addr) ) {
 					strncpy( src->addr, optarg, sizeof(src->addr) );
-					src->addr[sizeof(src->addr)] = '\0';
+					src->addr[sizeof(src->addr)-1] = '\0';
 				}
 				break;
 			case 'r':
@@ -114,7 +114,7 @@ int parseCMD( const int argc, char * const argv[], ipSpec *src, char *rootDir, c
 					if( chdir( optarg ) == 0 ) { //and if we can actually change to the requested directory
 						if( getcwd( temp, sizeof(temp) ) != NULL ) { //and if we can get the requested directory's name
 							strncpy( rootDir, temp, rootDirSize ); //then copy the full path of the requested direc in
-							rootDir[rootDirSize] = '\0'; //make sure it's null terminated
+							rootDir[rootDirSize-1] = '\0'; //make sure it's null terminated
 						}
 					}
 				}

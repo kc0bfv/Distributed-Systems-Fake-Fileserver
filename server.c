@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <unistd.h> //getcwd
 #include <stdlib.h> //malloc
+#include <sys/wait.h> //waitpid
 #include <string.h>
 
 #include "serverFuncs.h"
