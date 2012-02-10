@@ -26,5 +26,7 @@ int clientDisconnect( const clientSocket *cSocket );
 //-----------------Utilities
 //Ask the user for the next function to call on the server.  Also ask the user for any necessary parameters like filenames, fully format the parameters, and drop them in data.
 int queryUser( userOpts *option, unsigned char *data, const size_t maxDataLen, size_t *dataLen );
+//Ask the user for a string input, stored in buffer, with buffer size bufSize
+int readUserInput( char *buffer, const size_t bufSize );
 
 #endif

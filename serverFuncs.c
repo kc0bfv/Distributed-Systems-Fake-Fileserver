@@ -217,12 +217,12 @@ int serverRespRequest( const serverSocket *accepted, const userOpts option, cons
 			}
 
 			if( !error ) {
-				strncpy( (char *) response, "Success!", sizeof( response ) );
+				strncpy( (char *) response, "Success!", sizeof(response) );
 				len = strnlen( (char *) response, sizeof(response) );
 			} else {
-				prepError( errno, response, sizeof( response ), &len );
+				prepError( errno, response, sizeof(response), &len );
 			}
-			fmtMessage( option, response, len, message, sizeof( message ), &mesgSize );
+			fmtMessage( option, response, len, message, sizeof(message), &mesgSize );
 		} else { //Handle options with no data parameters
 			int error = FALSE;
 
@@ -250,26 +250,26 @@ int serverRespRequest( const serverSocket *accepted, const userOpts option, cons
 					break;
 				}
 				case OPT_PWD:
-					if( getcwd( (char *)response, sizeof( response ) ) == NULL ) {
+					if( getcwd( (char *)response, sizeof(response) ) == NULL ) {
 						error = TRUE; //TODO: Handle error
 					}
-					response[ sizeof( response ) - 1 ] = '\0';
+					response[ sizeof(response) - 1 ] = '\0';
 					len = strnlen( (char *) response, sizeof(response) );
 					break;
 				case OPT_HN:
-					if( gethostname( (char *) response, sizeof( response ) ) == -1 ) {
+					if( gethostname( (char *) response, sizeof(response) ) == -1 ) {
 						error = TRUE; //TODO: Handle error
 					}
-					response[ sizeof( response ) - 1 ] = '\0';
+					response[ sizeof(response) - 1 ] = '\0';
 					len = strnlen( (char *) response, sizeof(response) );
 					break;
 				default: error = TRUE; break; //bummer - TODO: errors here
 			} //Switch
 
 			if( error ) {
-				prepError( errno, response, sizeof( response ), &len );
+				prepError( errno, response, sizeof(response), &len );
 			}
-			fmtMessage( option, response, len, message, sizeof( message ), &mesgSize );
+			fmtMessage( option, response, len, message, sizeof(message), &mesgSize );
 		} //if
 
 		//Write out the message to the user

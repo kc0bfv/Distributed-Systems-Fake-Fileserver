@@ -98,6 +98,21 @@ int clientDisconnect( const clientSocket *cSocket ) {
 	return 0;
 }
 
+int readUserInput( char *buffer, const size_t bufSize ) {
+	char formatStr[10];
+#ifdef __APPLE__ //Dynamically setup a format string for scanf so we can't mess up string input
+	snprintf( formatStr, sizeof(formatStr), "%%%lus", bufSize-1 );
+#elif defined __linux__
+	snprintf( formatStr, sizeof(formatStr), "%%%us", bufSize-1 );
+#endif
+	if( scanf( formatStr, buffer ) != 1 ) {
+		return -1;
+	}
+	buffer[bufSize-1] = '\0'; //Just make sure
+
+	return 0;
+}
+
 int queryUser( userOpts *option, unsigned char *data, const size_t maxDataLen, size_t *dataLen ) {
 	unsigned int sel = 0;
 	*option = OPT_NOSELECTION; //Setup a default
@@ -110,7 +125,13 @@ int queryUser( userOpts *option, unsigned char *data, const size_t maxDataLen, s
 	printf( "4) Print the hostname \t5) Copy a file \t\t6) Make a directory\n" );
 	printf( "7) Print a file stat \t8) Quit\n" );
 	printf( "? " );
-	scanf( "%u", &sel );
+	{
+		char buffer[100];
+		readUserInput( buffer, sizeof(buffer) );
+		if( sscanf( buffer, "%u", &sel ) != 1 ) {
+			sel = 0;
+		}
+	}
 
 	switch( sel ) {
 		case 1: *option = OPT_LS; break;
@@ -128,14 +149,7 @@ int queryUser( userOpts *option, unsigned char *data, const size_t maxDataLen, s
 		char buffer[MAXFILENAMESIZE];
 		size_t len;
 		printf( "Enter name: " );
-		{	char formatStr[10]; //Dynamically build the format string, then read in the filename
-#ifdef __APPLE__
-			snprintf( formatStr, sizeof(formatStr), "%%%lus", sizeof(buffer) );
-#elif defined __linux__
-			snprintf( formatStr, sizeof(formatStr), "%%%us", sizeof(buffer) );
-#endif
-			scanf( formatStr, buffer ); }
-		buffer[sizeof(buffer)-1] = '\0';
+		readUserInput( buffer, sizeof(buffer) );
 		len = strnlen( buffer, sizeof(buffer) ) + 1; //+1 makes the length include the null character
 		if( len > sizeof(buffer) || len > MAXDATASIZE ) { //If the user entered malformed data, or if the data is too large to fit in the data segment
 			return -1; //Invalid user data. - Error TODO: set errno
@@ -148,28 +162,14 @@ int queryUser( userOpts *option, unsigned char *data, const size_t maxDataLen, s
 		size_t len1, len2;
 
 		printf( "Enter original name: " );
-		{	char formatStr[10]; //Dynamically build the format string, then read in the filename
-#ifdef __APPLE__
-			snprintf( formatStr, sizeof(formatStr), "%%%lus", sizeof(buffer1) );
-#elif defined __linux__
-			snprintf( formatStr, sizeof(formatStr), "%%%us", sizeof(buffer1) );
-#endif
-			scanf( formatStr, buffer1 ); }
-		buffer1[sizeof(buffer1)-1] = '\0';
+		readUserInput( buffer1, sizeof(buffer1) );
 		len1 = strnlen( buffer1, sizeof(buffer1) ) + 1; //+1 makes the length include the null character
 		if( len1 > sizeof(buffer1) || len1 > MAXDATASIZE ) { //If the user entered malformed data, or if the data is too large to fit in the data segment
 			return -1; //Invalid user data. - Error TODO: set errno
 		}
 
 		printf( "Enter destination name: " );
-		{	char formatStr[10]; //Dynamically build the format string, then read in the filename
-#ifdef __APPLE__
-			snprintf( formatStr, sizeof(formatStr), "%%%lus", sizeof(buffer2) );
-#elif defined __linux__
-			snprintf( formatStr, sizeof(formatStr), "%%%us", sizeof(buffer2) );
-#endif
-			scanf( formatStr, buffer2 ); }
-		buffer2[sizeof(buffer2)-1] = '\0';
+		readUserInput( buffer2, sizeof(buffer2) );
 		len2 = strnlen( buffer2, sizeof(buffer2) ) + 1; //+1 makes the length include the null character
 		if( len2 > sizeof(buffer2) || len2+len1 > MAXDATASIZE ) { //If the user entered malformed data, or if the data is too large to fit in the data segment
 			return -1; //Invalid user data. - Error TODO: set errno

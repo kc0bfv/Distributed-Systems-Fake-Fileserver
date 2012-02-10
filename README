@@ -1,0 +1,7 @@
+The code in here is all mine, with the exception of most of the code in "crc.c".  That code performs a CRC on data, and I maintained the author's copyright data as he requested.  The only changes I made to his code were formatting changes for parameters and output.
+
+Other than that, run make to build the software, and ./client -h or ./server -h (they're the same) to learn about command line parameters.  The default port is 3000.
+
+This is cross-platform (OS X and Linux)!  That only required a few changes to the way kernel data structures were handled.
+
+One last thing - the writeup mentioned that implementing with fork would be easier than implementing with pthreads.  I found that to be exactly true, but only because of the "cd" command's implementation.  "chdir" changes the working directory for an entire process.  I think making "cd" work with multithreading would have required some serious file/directory name parsing code, and I didn't want to get into that.  Thus, this implementation is multi-process.
